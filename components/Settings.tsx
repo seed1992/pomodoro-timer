@@ -7,7 +7,8 @@ interface SettingsProps {
   setWorkMinutes: (minutes: number) => void;
   breakMinutes: number;
   setBreakMinutes: (minutes: number) => void;
-  setMusicFile: (file: File | null) => void;
+  // Renamed prop to reflect the new functionality
+  onMusicFileSelected: (file: File | null) => void; 
   musicFileName?: string;
   isDisabled: boolean;
   language: Language;
@@ -32,14 +33,16 @@ export const Settings: React.FC<SettingsProps> = ({
   setWorkMinutes,
   breakMinutes,
   setBreakMinutes,
-  setMusicFile,
+  // Use the new prop name
+  onMusicFileSelected, 
   musicFileName,
   isDisabled,
   language,
 }) => {
   const handleFileChange = (e: ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
-      setMusicFile(e.target.files[0]);
+      // Pass the selected file to the new handler
+      onMusicFileSelected(e.target.files[0]); 
     }
   };
 
