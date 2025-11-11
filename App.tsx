@@ -4,25 +4,21 @@ import { Settings } from './components/Settings';
 import { Controls } from './components/Controls';
 import { StatusDisplay } from './components/StatusDisplay';
 import { translations, Language } from './lib/translations';
-import { Filesystem, Directory } from '@capacitor/filesystem';
 import { Preferences } from '@capacitor/preferences';
 import ForegroundService from './plugins/ForegroundService';
 import FloatingWindow from './plugins/FloatingWindow';
+import { NativeAudio } from '@capacitor-community/native-audio';
 
 type TimerMode = 'work' | 'break';
 
-const SOUND_FILE_KEY = 'pomodoro_sound_file_uri';
 const WORK_MINUTES_KEY = 'pomodoro_work_minutes';
 const BREAK_MINUTES_KEY = 'pomodoro_break_minutes';
+const ALARM_SOUND_ID = 'alarmSound'; // Unique ID for our sound
 
 function App() {
   const [workMinutes, setWorkMinutes] = useState(40);
   const [breakMinutes, setBreakMinutes] = useState(10);
-  // musicFile is no longer needed as we handle the file directly via Capacitor
-  // const [musicFile, setMusicFile] = useState<File | null>(null); 
-  const [musicUrl, setMusicUrl] = useState<string | null>(null);
-  const [musicFileName, setMusicFileName] = useState<string | undefined>(undefined);
-
+  
   const [mode, setMode] = useState<TimerMode>('work');
   const [isActive, setIsActive] = useState(false);
   const [secondsLeft, setSecondsLeft] = useState(workMinutes * 60);
@@ -30,37 +26,37 @@ function App() {
   const [isFloating, setIsFloating] = useState(false);
   const [language, setLanguage] = useState<Language>('zh');
 
-  const audioRef = useRef<HTMLAudioElement | null>(null);
   const intervalRef = useRef<number | null>(null);
 
-  // --- Persistence Handlers ---
+  // --- Sound Handling ---
+  useEffect(() => {
+    // On component mount, preload the sound for fast playback.
+    NativeAudio.preload({
+      assetId: ALARM_SOUND_ID,
+      assetPath: 'assets/sounds/Sound.mp3', // The path inside the 'public' directory
+      audioChannelNum: 1,
+      isUrl: false
+    }).catch(err => console.error('Error preloading sound:', err));
 
-  // 1. Load settings on startup
+    // On component unmount, unload the sound to free up resources.
+    return () => {
+      NativeAudio.unload({ assetId: ALARM_SOUND_ID })
+        .catch(err => console.error('Error unloading sound:', err));
+    };
+  }, []); // Empty array ensures this runs only once.
+
+  // --- Settings Persistence ---
   useEffect(() => {
     const loadSettings = async () => {
-      // Load Minutes
       const workMins = await Preferences.get({ key: WORK_MINUTES_KEY });
       if (workMins.value) setWorkMinutes(Number(workMins.value));
 
       const breakMins = await Preferences.get({ key: BREAK_MINUTES_KEY });
       if (breakMins.value) setBreakMinutes(Number(breakMins.value));
-
-      // Load Sound File URI
-      const soundUriResult = await Preferences.get({ key: SOUND_FILE_KEY });
-      if (soundUriResult.value) {
-        try {
-          const { uri, name } = JSON.parse(soundUriResult.value);
-          setMusicFileName(name);
-          setMusicUrl(uri);
-        } catch (e) {
-          console.error('Error parsing sound URI from preferences:', e);
-        }
-      }
     };
     loadSettings();
   }, []);
 
-  // 2. Save minutes whenever they change
   useEffect(() => {
     Preferences.set({ key: WORK_MINUTES_KEY, value: String(workMinutes) });
   }, [workMinutes]);
@@ -69,46 +65,7 @@ function App() {
     Preferences.set({ key: BREAK_MINUTES_KEY, value: String(breakMinutes) });
   }, [breakMinutes]);
 
-  // 3. Handle file selection and persistence
-  const handleMusicFileSelection = useCallback(async (file: File | null) => {
-    if (!file) {
-      // Clear sound
-      setMusicUrl(null);
-      setMusicFileName(undefined);
-      await Preferences.remove({ key: SOUND_FILE_KEY });
-      return;
-    }
-
-    try {
-      // Read the file as a base64 string
-      const reader = new FileReader();
-      reader.readAsDataURL(file);
-      reader.onloadend = async () => {
-        const base64Data = (reader.result as string).split(',')[1]; // Get base64 part
-        
-        // Save the file to the application's data directory
-        const fileName = `sound_${Date.now()}_${file.name}`;
-        const result = await Filesystem.writeFile({
-          path: fileName,
-          data: base64Data,
-          directory: Directory.Data,
-          recursive: true,
-        });
-
-        // Store the file URI and name in preferences
-        const soundData = { uri: result.uri, name: file.name };
-        await Preferences.set({ key: SOUND_FILE_KEY, value: JSON.stringify(soundData) });
-
-        setMusicFileName(file.name);
-        setMusicUrl(result.uri);
-      };
-    } catch (e) {
-      console.error('Error saving sound file:', e);
-    }
-  }, []);
-
   // --- Timer Logic ---
-
   const resetTimer = useCallback(() => {
     if (intervalRef.current) clearInterval(intervalRef.current);
     setIsActive(false);
@@ -118,19 +75,15 @@ function App() {
   }, [workMinutes]);
 
   useEffect(() => {
-    // This effect now ONLY runs when workMinutes changes, and the timer is not active.
     if (!isActive) {
       setSecondsLeft(workMinutes * 60);
     }
-  }, [workMinutes]); // We remove `isActive` from the dependency array
-
-  // Removed the old musicFile useEffect as it's replaced by handleMusicFileSelection
+  }, [workMinutes]);
 
   const playSound = useCallback(() => {
-    if (audioRef.current) {
-      audioRef.current.currentTime = 0;
-      audioRef.current.play().catch(error => console.error("Audio playback failed:", error));
-    }
+    // Play the preloaded sound by its ID
+    NativeAudio.play({ assetId: ALARM_SOUND_ID })
+      .catch(error => console.error("Audio playback failed:", error));
   }, []);
   
   const switchMode = useCallback(() => {
@@ -139,14 +92,14 @@ function App() {
     
     setMode(nextMode);
     setSecondsLeft(nextSeconds);
-    playSound();
+    playSound(); // Play sound when modes switch
   }, [mode, workMinutes, breakMinutes, playSound]);
 
   useEffect(() => {
     if (isActive && !isPaused) {
       intervalRef.current = setInterval(() => {
         setSecondsLeft(prev => {
-          // 更新前景服務
+          // Update foreground service and floating window
           const currentText = mode === 'work' ? translations.statusWorking[language] : translations.statusBreaking[language];
           if (isFloating) {
             const timeString = `${String(Math.floor((prev - 1) / 60)).padStart(2, '0')}:${String((prev - 1) % 60).padStart(2, '0')}`;
@@ -157,11 +110,11 @@ function App() {
             text: currentText,
             secondsLeft: prev - 1,
           });
+
           if (prev <= 1) {
-            // 停止前景服務，因為模式切換後，計時器會自動重新啟動
             ForegroundService.stop();
             switchMode();
-            return 0; // The switchMode will set the new time
+            return 0;
           }
           return prev - 1;
         });
@@ -173,38 +126,31 @@ function App() {
     return () => {
       if (intervalRef.current) clearInterval(intervalRef.current);
     };
-  }, [isActive, isPaused, switchMode]);
+  }, [isActive, isPaused, switchMode, isFloating, language, mode]);
   
   const handleStart = () => {
-    // 啟動前景服務
     const currentText = mode === 'work' ? translations.statusWorking[language] : translations.statusBreaking[language];
     ForegroundService.start({
       title: translations.title[language],
       text: currentText,
       secondsLeft: secondsLeft,
     });
-    // To resume, we just need to set isActive to true and isPaused to false.
-    // The main timer useEffect will handle the rest.
     setIsActive(true);
     setIsPaused(false);
   };
 
   const handlePause = () => {
-    // 停止前景服務
     ForegroundService.stop();
-      // This will stop the timer via the main useEffect.
-      setIsActive(false);
-      // We keep track that it's paused, not reset.
-      setIsPaused(true);
+    setIsActive(false);
+    setIsPaused(true);
   }
 
   const handleReset = () => {
-    // 停止前景服務
     ForegroundService.stop();
     resetTimer();
   };
 
-    const toggleFloatingWindow = async () => {
+  const toggleFloatingWindow = async () => {
     if (isFloating) {
       await FloatingWindow.hide();
       setIsFloating(false);
@@ -270,15 +216,13 @@ function App() {
           setWorkMinutes={setWorkMinutes}
           breakMinutes={breakMinutes}
           setBreakMinutes={setBreakMinutes}
-          // Pass the new handler instead of the old setMusicFile
-          onMusicFileSelected={handleMusicFileSelection} 
-          musicFileName={musicFileName}
+          // The file selection props are now removed.
+          // You may want to clean up the Settings component to remove the UI for this.
           isDisabled={isActive}
           language={language}
         />
 
-        {/* Use musicUrl which is now a persisted file URI */}
-        {musicUrl && <audio ref={audioRef} src={musicUrl} />}
+        {/* The <audio> tag is no longer needed */}
       </div>
     </div>
   );
