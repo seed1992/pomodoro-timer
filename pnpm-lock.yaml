@@ -8,6 +8,9 @@ importers:
 
   .:
     dependencies:
+      '@capacitor-community/native-audio':
+        specifier: ^7.0.1
+        version: 7.0.1(@capacitor/core@7.4.4)
       '@capacitor/core':
         specifier: ^7.4.4
         version: 7.4.4
@@ -127,6 +130,11 @@ packages:
   '@babel/types@7.28.5':
     resolution: {integrity: sha512-qQ5m48eI/MFLQ5PxQj4PFaprjyCTLI37ElWMmNs0K8Lk3dVeOdNpB3ks8jc7yM5CDmVC73eMVk/trk3fgmrUpA==}
     engines: {node: '>=6.9.0'}
+
+  '@capacitor-community/native-audio@7.0.1':
+    resolution: {integrity: sha512-tqDvSB4oxn8kuPtFdvCM47ql6pO8vgfDcpfklpXL87gzgbHNPz6LN6aA0gTpFnTlR5LxIx5A4PIqpuoeHaF0+g==}
+    peerDependencies:
+      '@capacitor/core': '>=7.0.0'
 
   '@capacitor/android@6.2.1':
     resolution: {integrity: sha512-8gd4CIiQO5LAIlPIfd5mCuodBRxMMdZZEdj8qG8m+dQ1sQ2xyemVpzHmRK8qSCHorsBUCg3D62j2cp6bEBAkdw==}
@@ -1101,6 +1109,10 @@ snapshots:
     dependencies:
       '@babel/helper-string-parser': 7.27.1
       '@babel/helper-validator-identifier': 7.28.5
+
+  '@capacitor-community/native-audio@7.0.1(@capacitor/core@7.4.4)':
+    dependencies:
+      '@capacitor/core': 7.4.4
 
   '@capacitor/android@6.2.1(@capacitor/core@7.4.4)':
     dependencies:

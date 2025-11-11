@@ -41,6 +41,10 @@ export const translations = {
     zh: '提醒鈴聲',
     en: 'Alarm Sound',
   },
+  settingsCustomFile: {
+    zh: '自定義檔案',
+    en: 'Custom File',
+  },
   settingsFileButton: {
     zh: '選擇 MP3 檔案',
     en: 'Choose MP3 File',

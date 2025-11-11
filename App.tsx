@@ -5,6 +5,7 @@ import { Controls } from './components/Controls';
 import { StatusDisplay } from './components/StatusDisplay';
 import { translations, Language } from './lib/translations';
 import { Preferences } from '@capacitor/preferences';
+import { SoundOption, BUILTIN_SOUNDS, DEFAULT_SOUND_ID, SoundType } from './lib/soundModels';
 import ForegroundService from './plugins/ForegroundService';
 import FloatingWindow from './plugins/FloatingWindow';
 import { NativeAudio } from '@capacitor-community/native-audio';
@@ -12,10 +13,15 @@ import { NativeAudio } from '@capacitor-community/native-audio';
 type TimerMode = 'work' | 'break';
 
 const WORK_MINUTES_KEY = 'pomodoro_work_minutes';
+const SOUND_OPTION_KEY = 'pomodoro_sound_option';
 const BREAK_MINUTES_KEY = 'pomodoro_break_minutes';
 const ALARM_SOUND_ID = 'alarmSound'; // Unique ID for our sound
+const CUSTOM_SOUND_FILE_KEY = 'pomodoro_custom_sound_file_uri';
 
 function App() {
+  const [selectedSound, setSelectedSound] = useState<SoundOption>(BUILTIN_SOUNDS.find(s => s.id === DEFAULT_SOUND_ID)!);
+  const [customSoundUri, setCustomSoundUri] = useState<string | null>(null);
+  const [customSoundName, setCustomSoundName] = useState<string | undefined>(undefined);
   const [workMinutes, setWorkMinutes] = useState(40);
   const [breakMinutes, setBreakMinutes] = useState(10);
   
@@ -29,30 +35,85 @@ function App() {
   const intervalRef = useRef<number | null>(null);
 
   // --- Sound Handling ---
-  useEffect(() => {
-    // On component mount, preload the sound for fast playback.
-    NativeAudio.preload({
-      assetId: ALARM_SOUND_ID,
-      assetPath: 'assets/sounds/Sound.mp3', // The path inside the 'public' directory
-      audioChannelNum: 1,
-      isUrl: false
-    }).catch(err => console.error('Error preloading sound:', err));
+  const getSoundPath = useCallback((sound: SoundOption) => {
+    if (sound.type === 'builtin') {
+      // For built-in sounds, we need to remove the leading '/' for assetPath
+      return sound.value.substring(1);
+    } else if (sound.type === 'custom' && customSoundUri) {
+      return customSoundUri;
+    }
+    return ''; // 'none' or custom not set
+  }, [customSoundUri]);
 
-    // On component unmount, unload the sound to free up resources.
+  const preloadSound = useCallback(async (sound: SoundOption) => {
+    const path = getSoundPath(sound);
+    if (path) {
+      try {
+        await NativeAudio.preload({
+          assetId: ALARM_SOUND_ID,
+          assetPath: path,
+          audioChannelNum: 1,
+          isUrl: sound.type === 'custom', // Custom sound is a file URI, which is treated as a URL
+        });
+      } catch (err) {
+        console.error('Error preloading sound:', err);
+      }
+    }
+  }, [getSoundPath]);
+
+  const unloadSound = useCallback(async () => {
+    try {
+      await NativeAudio.unload({ assetId: ALARM_SOUND_ID });
+    } catch (err) {
+      // Ignore error if sound was not loaded
+    }
+  }, []);
+
+  // Preload/Unload effect
+  useEffect(() => {
+    unloadSound().then(() => {
+      if (selectedSound.type !== 'none') {
+        preloadSound(selectedSound);
+      }
+    });
+
     return () => {
-      NativeAudio.unload({ assetId: ALARM_SOUND_ID })
-        .catch(err => console.error('Error unloading sound:', err));
+      unloadSound();
     };
-  }, []); // Empty array ensures this runs only once.
+  }, [selectedSound, preloadSound, unloadSound]);
+
 
   // --- Settings Persistence ---
   useEffect(() => {
     const loadSettings = async () => {
+      // Load Minutes
       const workMins = await Preferences.get({ key: WORK_MINUTES_KEY });
       if (workMins.value) setWorkMinutes(Number(workMins.value));
 
       const breakMins = await Preferences.get({ key: BREAK_MINUTES_KEY });
       if (breakMins.value) setBreakMinutes(Number(breakMins.value));
+
+      // Load Sound Option
+      const soundOptionResult = await Preferences.get({ key: SOUND_OPTION_KEY });
+      if (soundOptionResult.value) {
+        const savedSoundId = soundOptionResult.value;
+        const foundSound = BUILTIN_SOUNDS.find(s => s.id === savedSoundId);
+        if (foundSound) {
+          setSelectedSound(foundSound);
+        } else if (savedSoundId === 'custom') {
+          // Load custom sound details
+          const customSoundResult = await Preferences.get({ key: CUSTOM_SOUND_FILE_KEY });
+          if (customSoundResult.value) {
+            const { uri, name } = JSON.parse(customSoundResult.value);
+            setCustomSoundUri(uri);
+            setCustomSoundName(name);
+            setSelectedSound({ id: 'custom', type: 'custom', name: name, value: uri });
+          } else {
+            // Custom sound selected but file lost, fallback to default
+            setSelectedSound(BUILTIN_SOUNDS.find(s => s.id === DEFAULT_SOUND_ID)!);
+          }
+        }
+      }
     };
     loadSettings();
   }, []);
@@ -64,6 +125,11 @@ function App() {
   useEffect(() => {
     Preferences.set({ key: BREAK_MINUTES_KEY, value: String(breakMinutes) });
   }, [breakMinutes]);
+
+  // Save selected sound option
+  useEffect(() => {
+    Preferences.set({ key: SOUND_OPTION_KEY, value: selectedSound.id });
+  }, [selectedSound]);
 
   // --- Timer Logic ---
   const resetTimer = useCallback(() => {
@@ -81,10 +147,12 @@ function App() {
   }, [workMinutes]);
 
   const playSound = useCallback(() => {
-    // Play the preloaded sound by its ID
-    NativeAudio.play({ assetId: ALARM_SOUND_ID })
-      .catch(error => console.error("Audio playback failed:", error));
-  }, []);
+    if (selectedSound.type !== 'none') {
+      // Play the preloaded sound by its ID
+      NativeAudio.play({ assetId: ALARM_SOUND_ID })
+        .catch(error => console.error("Audio playback failed:", error));
+    }
+  }, [selectedSound]);
   
   const switchMode = useCallback(() => {
     const nextMode = mode === 'work' ? 'break' : 'work';
@@ -216,13 +284,15 @@ function App() {
           setWorkMinutes={setWorkMinutes}
           breakMinutes={breakMinutes}
           setBreakMinutes={setBreakMinutes}
-          // The file selection props are now removed.
-          // You may want to clean up the Settings component to remove the UI for this.
+          selectedSound={selectedSound}
+          setSelectedSound={setSelectedSound}
+          setCustomSoundUri={setCustomSoundUri}
+          setCustomSoundName={setCustomSoundName}
           isDisabled={isActive}
           language={language}
         />
 
-        {/* The <audio> tag is no longer needed */}
+
       </div>
     </div>
   );
