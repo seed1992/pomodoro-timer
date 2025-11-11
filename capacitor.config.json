@@ -1,0 +1,6 @@
+{
+  "appId": "AntharLin.Prodomo",
+  "appName": "番茄鐘",
+  "webDir": "dist",
+  "bundledWebRuntime": false
+}

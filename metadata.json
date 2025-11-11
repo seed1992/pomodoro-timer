@@ -1,0 +1,5 @@
+{
+  "name": "React 番茄鐘",
+  "description": "一個受 PowerShell 腳本啟發的番茄鐘應用程式。它可以幫助使用者管理工作和休息時間，並可自訂時間和提醒鈴聲。",
+  "requestFramePermissions": []
+}
